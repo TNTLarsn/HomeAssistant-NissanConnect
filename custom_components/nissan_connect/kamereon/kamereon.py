@@ -117,20 +117,22 @@ class Notification:
         return resp
 
 
+class NissanAuthError(RuntimeError):
+    """Raised when Nissan rejects the credentials themselves."""
+
+
 class KamereonSession:
 
     tenant = None
     copy_realm = None
     unique_id = None
 
-    def __init__(self, region, unique_id=None, country_code=None, language_code='en'):
+    def __init__(self, region, unique_id=None):
         self.settings = SETTINGS_MAP[self.tenant][region]
         self.session = requests.session()
         self._oauth = None
         self._user_id = None
         self._kamereon_refresh_token = None
-        self._country_code = country_code.upper() if country_code else None
-        self._language_code = language_code.replace('_', '-').split('-')[0].lower()
         self.unique_id = unique_id
 
     @staticmethod
@@ -168,7 +170,6 @@ class KamereonSession:
     def _authorization_code(self, username, password):
         verifier, challenge = self._generate_pkce_pair()
         state = secrets.token_urlsafe(32)
-        locale = f"{self._language_code}_{self._country_code}"
         try:
             response = self.session.get(
                 urljoin(self.settings['auth_base_url'], 'oauth2/authorize'),
@@ -180,7 +181,7 @@ class KamereonSession:
                     'scope': self.settings['scope'],
                     'code_challenge': challenge,
                     'code_challenge_method': 'S256',
-                    'locale': locale,
+                    'locale': self.settings['auth_locale'],
                     'brand': self.settings['auth_brand'],
                     'client': self.settings['auth_client'],
                 },
@@ -236,7 +237,7 @@ class KamereonSession:
             raise RuntimeError("Invalid Nissan login state")
         code = callback_data.get('code', [None])[0]
         if not code:
-            raise RuntimeError("Invalid credentials")
+            raise NissanAuthError("Invalid credentials")
         return code, verifier
 
     def _follow_login_redirects(self, response):
@@ -285,7 +286,7 @@ class KamereonSession:
                 parser = _LoginFormParser()
                 parser.feed(response.text)
                 if parser.login_form is not None:
-                    raise RuntimeError("Invalid credentials")
+                    raise NissanAuthError("Invalid credentials")
             break
 
         raise RuntimeError("Nissan login did not return an authorization code")
@@ -357,18 +358,14 @@ class KamereonSession:
     def _refresh_authentication(self):
         try:
             self._refresh_kamereon_token()
-        except Exception:
+        except Exception as error:
+            _LOGGER.debug("Kamereon token refresh failed, logging in again: %s", error)
             self.login()
 
-    def login(self, username=None, password=None, country_code=None):
+    def login(self, username=None, password=None):
         if username is not None and password is not None:
             self._username = username
             self._password = password
-        if country_code is not None:
-            self._country_code = country_code.upper()
-        if (not self._country_code or len(self._country_code) != 2
-                or not self._country_code.isalpha()):
-            raise RuntimeError("A two-letter Nissan account country code is required")
 
         try:
             username = self._username
@@ -477,7 +474,6 @@ class Vehicle:
         self.picture_url = data.get('pictureURL')
         self.privacy_mode = data.get('privacyMode')
         self.registration_number = data.get('registrationNumber')
-        self.battery_supported = True
         self.battery_capacity = None
         self.battery_level = None
         self.battery_temperature = None
@@ -531,6 +527,8 @@ class Vehicle:
             try:
                 return self.session.request(
                     method, url, headers=headers, params=params, data=data)
+            except NissanAuthError:
+                raise
             except Exception as e:
                 _LOGGER.debug(f"Request failed on attempt {attempt + 1} of {max_retries}: {e}")
                 if attempt == max_retries - 1:  # Exhausted retries
@@ -548,6 +546,23 @@ class Vehicle:
     def refresh(self):
         self.refresh_location()
         self.refresh_battery_status()
+
+    @property
+    def last_updated(self):
+        timestamps = [
+            self.battery_status_last_updated,
+            self.location_last_updated,
+            self.hvac_status_last_updated,
+            self.lock_status_last_updated,
+        ]
+        return max(
+            (
+                t if t.tzinfo is not None
+                else t.replace(tzinfo=datetime.timezone.utc)
+                for t in timestamps if t is not None
+            ),
+            default=None,
+        )
 
     def fetch_all(self):
         self.fetch_cockpit()
@@ -858,7 +873,7 @@ class Vehicle:
             raise ValueError(body['errors'])
 
         if not 'data' in body or not 'attributes' in body['data']:
-            self.battery_supported = False
+            return
 
         battery_data = body['data']['attributes']
         self.battery_capacity = battery_data.get('batteryCapacity')  # kWh
@@ -876,10 +891,12 @@ class Vehicle:
         }
         self.range_hvac_off = battery_data.get('rangeHvacOff')
         self.range_hvac_on = battery_data.get('rangeHvacOn')
-        
-        # For ICE vehicles, we should get the range at least. If not, dont bother again
+
+        if 'lastUpdateTime' in battery_data:
+            self.battery_status_last_updated = datetime.datetime.fromisoformat(battery_data['lastUpdateTime'].replace('Z','+00:00'))
+
+        # Everything below is EV-only
         if self.range_hvac_on is None and Feature.BATTERY_STATUS not in self.features:
-            self.battery_supported = False
             return
 
         self.charging = ChargingStatus(battery_data.get('chargeStatus', 0))
@@ -888,8 +905,6 @@ class Vehicle:
             self.plugged_in_time = datetime.datetime.fromisoformat(battery_data['vehiclePlugTimestamp'].replace('Z','+00:00'))
         if 'vehicleUnplugTimestamp' in battery_data:
             self.unplugged_time = datetime.datetime.fromisoformat(battery_data['vehicleUnplugTimestamp'].replace('Z','+00:00'))
-        if 'lastUpdateTime' in battery_data:
-            self.battery_status_last_updated = datetime.datetime.fromisoformat(battery_data['lastUpdateTime'].replace('Z','+00:00'))
 
     def fetch_battery_status_ariya(self):
         resp = self._get(
@@ -901,7 +916,7 @@ class Vehicle:
             raise ValueError(body['errors'])
 
         if not 'data' in body or not 'attributes' in body['data']:
-            self.battery_supported = False
+            return
 
         battery_data = body['data']['attributes']
         
