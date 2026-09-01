@@ -1,6 +1,6 @@
 ---
 name: add-nissan-entity
-description: 'Add or modify a Home Assistant entity in the NissanConnect integration. Use for sensors, binary sensors, buttons, climate entities, device trackers, vehicle capability gating, translation keys, entity documentation, and matching tests.'
+description: 'Add or modify a Home Assistant entity in the NissanConnect integration after validating its Nissan contract against the verified original Android app. Use for sensors, binary sensors, buttons, climate entities, device trackers, vehicle capability gating, translation keys, entity documentation, and matching tests.'
 argument-hint: 'Describe the entity, source data or action, and required vehicle capability'
 ---
 
@@ -8,10 +8,14 @@ argument-hint: 'Describe the entity, source data or action, and required vehicle
 
 Implement one NissanConnect entity end to end while preserving vehicle capability checks, stable entity identity, and the distinction between fetching data and waking a vehicle.
 
+## Pass the Original-App Evidence Gate
+
+Before adding a new Nissan-backed entity, follow the sibling [MyNISSAN capability discovery skill](../discover-mynissan-capabilities/SKILL.md). Verify the source or action semantics, service ID or other capability gate, model/region applicability, and side-effect class against a current verified original Android app contract. A previously reconstructed matrix may be reused only when it covers the same app build and source/action. Pure presentation or bug-fix changes to an existing tested entity do not require unrelated artifact analysis.
+
 ## Establish the Contract
 
 1. Read the repository [guidelines](../../../AGENTS.md) and the "Update Time" and "Entities" sections of the [README](../../../README.md).
-2. Extract or determine:
+2. Extract or determine from the app-derived contract matrix and current integration:
    - The Home Assistant platform and entity type.
    - The cached vehicle property or Nissan action that controls the entity.
    - The required `Feature` or a reliable non-`None` availability check.
@@ -22,7 +26,7 @@ Implement one NissanConnect entity end to end while preserving vehicle capabilit
 ## Trace the Data or Action
 
 1. Locate the source property, action, and capability in `custom_components/nissan_connect/kamereon/` before editing the platform.
-2. If the in-tree Kamereon layer does not expose the required data or action, extend that layer narrowly and test the behavior through mocks. Keep this API layer synchronous.
+2. If the in-tree Kamereon layer does not expose the required data or action, apply the sibling [Kamereon feature skill](../add-kamereon-feature/SKILL.md), extend that layer narrowly, and test the behavior through mocks. Keep this API layer synchronous.
 3. Select the coordinator by behavior:
 
    | Behavior | Coordinator or rule |

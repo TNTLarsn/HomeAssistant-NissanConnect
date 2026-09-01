@@ -1,6 +1,6 @@
 ---
 name: add-kamereon-feature
-description: 'Add or modify a Nissan Kamereon API capability in the in-tree synchronous client. Use for Feature service IDs, vehicle status endpoints, refresh actions, remote commands, JSON:API request or response parsing, Vehicle fields, fetch_all orchestration, and mocked API tests.'
+description: 'Add or modify a Nissan Kamereon API capability in the in-tree synchronous client after reconstructing it from the verified original Android app. Use for Feature service IDs, vehicle status endpoints, refresh actions, remote commands, JSON:API request or response parsing, Vehicle fields, fetch_all orchestration, and mocked API tests.'
 argument-hint: 'Describe the service ID, endpoint, method, payload or response fields, and intended consumer'
 ---
 
@@ -8,10 +8,14 @@ argument-hint: 'Describe the service ID, endpoint, method, payload or response f
 
 Implement one Nissan API capability end to end without guessing the production contract, blocking Home Assistant's event loop, or turning a passive update into a vehicle-waking poll.
 
+## Pass the Original-App Evidence Gate
+
+Before editing, follow the sibling [MyNISSAN capability discovery skill](../discover-mynissan-capabilities/SKILL.md). Every new or changed Nissan endpoint, service ID, request field, response field, token consumer, model gate, refresh, or command must have a contract matrix reconstructed from a verified original Android app release and corroborated by compatible independent evidence. Reuse an existing matrix only when its package version, build, artifact identity, and relevant contract remain current. Stop rather than implement an inferred contract when this gate cannot be satisfied.
+
 ## Establish the API Contract
 
 1. Read the repository [guidelines](../../../AGENTS.md), especially the coordinator and synchronous API-layer boundaries.
-2. Extract from the request, an issue, or a captured and sanitized API example:
+2. Extract from the app-derived contract matrix, using a request, issue, or sanitized API example only as supporting evidence:
    - The numeric Nissan service ID and corresponding capability name, when one exists.
    - The HTTP method, base URL setting, API version, path, headers, query parameters, and JSON body.
    - Representative success, unsupported, and error responses.
@@ -26,7 +30,7 @@ Implement one Nissan API capability end to end without guessing the production c
    | Explicit refresh | Usually action `POST`; asks the car for fresh state | Keep separate from passive fetches and invoke only through the polling or explicit-update path |
    | Remote control | Action `POST`; performs a user command | Keep out of every coordinator fetch loop and invoke only from the matching action entity or service |
 
-4. If the service ID, endpoint, or schema is not supported by evidence, ask for that evidence. Do not invent URLs, IDs, payload fields, credentials, client secrets, or response shapes.
+4. If the service ID, endpoint, or schema is not supported by the required app evidence, return to capability discovery. Do not invent URLs, IDs, payload fields, credentials, client secrets, or response shapes.
 
 ## Extend the Kamereon Layer
 
